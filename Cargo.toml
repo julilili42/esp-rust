@@ -24,7 +24,9 @@ esp-backtrace = { version = "0.20.0", features = [
 esp-println = { version = "0.18.0", features = ["defmt-espflash", "esp32c6"] }
 esp-hal-smartled = "0.18.0"
 smart-leds = "0.4.0"
-
+mpu6050 = "0.1.6"
+embedded-hal-compat = "0.13"
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.7" }
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]
