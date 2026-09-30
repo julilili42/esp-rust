@@ -7,16 +7,19 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use defmt::info;
-use embedded_hal_compat::ReverseCompat;
+use anyhow::Result;
+use defmt::{error, info};
+use embedded_hal_compat::{Reverse, ReverseCompat};
 use esp_backtrace as _;
 use esp_hal::{
+    Blocking,
     delay::Delay,
     i2c::master::{Config, I2c},
     main,
     time::{Duration, Rate},
 };
 use esp_println::{self as _, println};
+use heapless::Vec;
 use mpu6050::Mpu6050;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
@@ -30,46 +33,88 @@ impl embedded_hal_02::blocking::delay::DelayMs<u8> for MpuDelay {
     }
 }
 
+#[derive(Debug)]
+struct AccData {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+fn bus_setup() -> Result<I2c<'static, Blocking>> {
+    let peripherals = esp_hal::init(esp_hal::Config::default());
+    let i2c_config = Config::default().with_frequency(Rate::from_khz(100));
+
+    let i2c_bus = I2c::new(peripherals.I2C0, i2c_config)?
+        .with_sda(peripherals.GPIO2)
+        .with_scl(peripherals.GPIO3);
+
+    Ok(i2c_bus)
+}
+
+fn initialize_mpu(
+    i2c_bus: I2c<'static, Blocking>,
+) -> Result<Mpu6050<Reverse<I2c<'static, Blocking>>>> {
+    let delay = Delay::new();
+    let mut mpu_delay = MpuDelay(delay);
+    let mut mpu = Mpu6050::new(i2c_bus.reverse());
+    mpu.init(&mut mpu_delay).unwrap();
+
+    Ok(mpu)
+}
+
 #[allow(
     clippy::large_stack_frames,
     reason = "it's not unusual to allocate larger buffers etc. in main"
 )]
 #[main]
 fn main() -> ! {
-    // generator version: 1.4.0
-    // generator parameters: -o esp32c6 -o unstable-hal -o defmt -o esp-backtrace -o zed
+    esp_alloc::heap_allocator!(size: 32 * 1024);
 
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-    let i2c_config = Config::default().with_frequency(Rate::from_khz(100));
+    let i2c_bus = match bus_setup() {
+        Ok(bus) => bus,
+        Err(e) => {
+            error!("Failed to set-up i2c bus: {}", defmt::Display2Format(&e));
+            loop {
+                Delay::new().delay(Duration::from_millis(1000));
+            }
+        }
+    };
 
-    let i2c_bus = I2c::new(peripherals.I2C0, i2c_config)
-        .unwrap()
-        .with_sda(peripherals.GPIO2)
-        .with_scl(peripherals.GPIO3);
+    let mut mpu = match initialize_mpu(i2c_bus) {
+        Ok(m) => {
+            info!("Initialized mpu");
+            m
+        }
+        Err(e) => {
+            error!("Failed to initialize mpu: {}", defmt::Display2Format(&e));
+            loop {
+                Delay::new().delay(Duration::from_millis(1000));
+            }
+        }
+    };
 
-    let duration = Duration::from_millis(500);
     let delay = Delay::new();
-    let mut mpu_delay = MpuDelay(delay);
-    let mut mpu = Mpu6050::new(i2c_bus.reverse());
-
-    mpu.init(&mut mpu_delay).unwrap();
-    println!("initialized");
-
+    let mut buffer: Vec<AccData, 32> = Vec::new();
+    let mut i = 0;
     loop {
         if let Ok(acc) = mpu.get_acc() {
             info!("Acc - X: {}, Y: {}, Z: {}", acc.x, acc.y, acc.z);
-        }
+            if i == 31 {
+                println!("{:?}", buffer);
+                buffer.clear();
+                i = 0;
+            }
+            buffer
+                .push(AccData {
+                    x: acc.x,
+                    y: acc.y,
+                    z: acc.z,
+                })
+                .unwrap();
 
-        if let Ok(gyro) = mpu.get_gyro() {
-            info!("Gyro - X: {}, Y: {}, Z: {}", gyro.x, gyro.y, gyro.z);
+            i += 1;
         }
-
-        if let Ok(temp) = mpu.get_temp() {
-            info!("Temperatur: {} Grad Celsius", temp);
-        }
-
-        info!("-----------------------------------------");
-        delay.delay(duration);
+        delay.delay(Duration::from_millis(500));
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.2.2/examples
