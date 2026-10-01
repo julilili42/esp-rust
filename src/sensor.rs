@@ -11,6 +11,7 @@ use esp_hal::{
     Blocking,
     delay::Delay,
     i2c::master::{Config, ConfigError, I2c},
+    peripherals::{FROM_CPU_INTR0, TIMG0},
     time::{Duration, Rate},
     timer::timg::TimerGroup,
 };
@@ -31,11 +32,16 @@ impl embedded_hal_02::blocking::delay::DelayMs<u8> for MpuDelay {
     }
 }
 
+pub fn start_rtos(timg0: TIMG0<'static>, interrupt: FROM_CPU_INTR0<'static>) {
+    let timg0 = TimerGroup::new(timg0);
+    esp_rtos::start(timg0.timer0, interrupt);
+}
+
 pub fn bus_setup() -> Result<I2c<'static, Blocking>, ConfigError> {
     let peripherals = esp_hal::init(esp_hal::Config::default());
     let i2c_config = Config::default().with_frequency(Rate::from_khz(100));
-    let timg0 = TimerGroup::new(peripherals.TIMG0);
-    esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
+
+    start_rtos(peripherals.TIMG0, peripherals.FROM_CPU_INTR0);
 
     let i2c_bus = I2c::new(peripherals.I2C0, i2c_config)?
         .with_sda(peripherals.GPIO2)
