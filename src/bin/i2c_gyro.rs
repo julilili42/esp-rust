@@ -7,60 +7,16 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use anyhow::Result;
 use defmt::{error, info};
-use embedded_hal_compat::{Reverse, ReverseCompat};
 use esp_backtrace as _;
-use esp_hal::{
-    Blocking,
-    delay::Delay,
-    i2c::master::{Config, I2c},
-    main,
-    time::{Duration, Rate},
-};
+use esp_hal::{delay::Delay, main, time::Duration};
 use esp_println::{self as _, println};
+use esp_rust::sensor::{AccData, bus_setup, initialize_mpu};
 use heapless::Vec;
-use mpu6050::Mpu6050;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
-
-struct MpuDelay(Delay);
-impl embedded_hal_02::blocking::delay::DelayMs<u8> for MpuDelay {
-    fn delay_ms(&mut self, ms: u8) {
-        self.0.delay(Duration::from_millis(u64::from(ms)));
-    }
-}
-
-#[derive(Debug)]
-struct AccData {
-    x: f32,
-    y: f32,
-    z: f32,
-}
-
-fn bus_setup() -> Result<I2c<'static, Blocking>> {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-    let i2c_config = Config::default().with_frequency(Rate::from_khz(100));
-
-    let i2c_bus = I2c::new(peripherals.I2C0, i2c_config)?
-        .with_sda(peripherals.GPIO2)
-        .with_scl(peripherals.GPIO3);
-
-    Ok(i2c_bus)
-}
-
-fn initialize_mpu(
-    i2c_bus: I2c<'static, Blocking>,
-) -> Result<Mpu6050<Reverse<I2c<'static, Blocking>>>> {
-    let delay = Delay::new();
-    let mut mpu_delay = MpuDelay(delay);
-    let mut mpu = Mpu6050::new(i2c_bus.reverse());
-    mpu.init(&mut mpu_delay).unwrap();
-
-    Ok(mpu)
-}
 
 #[allow(
     clippy::large_stack_frames,
@@ -86,7 +42,7 @@ fn main() -> ! {
             m
         }
         Err(e) => {
-            error!("Failed to initialize mpu: {}", defmt::Display2Format(&e));
+            error!("Failed to initialize mpu: {}", defmt::Debug2Format(&e));
             loop {
                 Delay::new().delay(Duration::from_millis(1000));
             }
