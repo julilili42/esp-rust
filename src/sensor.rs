@@ -11,7 +11,7 @@ use esp_hal::{
     Blocking,
     delay::Delay,
     i2c::master::{Config, ConfigError, I2c},
-    peripherals::{FROM_CPU_INTR0, TIMG0},
+    peripherals::{FROM_CPU_INTR0, GPIO2, GPIO3, I2C0, TIMG0},
     time::{Duration, Rate},
     timer::timg::TimerGroup,
 };
@@ -37,17 +37,14 @@ pub fn start_rtos(timg0: TIMG0<'static>, interrupt: FROM_CPU_INTR0<'static>) {
     esp_rtos::start(timg0.timer0, interrupt);
 }
 
-pub fn bus_setup() -> Result<I2c<'static, Blocking>, ConfigError> {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
+pub fn bus_setup(
+    i2c0: I2C0<'static>,
+    sda: GPIO2<'static>,
+    scl: GPIO3<'static>,
+) -> Result<I2c<'static, Blocking>, ConfigError> {
     let i2c_config = Config::default().with_frequency(Rate::from_khz(100));
 
-    start_rtos(peripherals.TIMG0, peripherals.FROM_CPU_INTR0);
-
-    let i2c_bus = I2c::new(peripherals.I2C0, i2c_config)?
-        .with_sda(peripherals.GPIO2)
-        .with_scl(peripherals.GPIO3);
-
-    Ok(i2c_bus)
+    Ok(I2c::new(i2c0, i2c_config)?.with_sda(sda).with_scl(scl))
 }
 
 pub fn initialize_mpu(

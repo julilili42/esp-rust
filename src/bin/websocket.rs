@@ -35,7 +35,7 @@ async fn main(spawner: Spawner) -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
 
-    let stack = match wifi::connect(spawner, peripherals, SSID, PASSWORD).await {
+    let stack = match wifi::connect(spawner, peripherals.WIFI, SSID, PASSWORD).await {
         Ok(stack) => stack,
         Err(e) => {
             error!("Wifi error: {}", defmt::Debug2Format(&e));

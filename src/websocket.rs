@@ -37,6 +37,7 @@ pub async fn connect_tcp<'a>(
     stream
 }
 
+#[warn(clippy::large_stack_frames)]
 pub async fn ws_handshake(
     websocket: &mut WebSocket<Rng, Client>,
     stream: &mut TcpSocket<'_>,

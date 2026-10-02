@@ -1,10 +1,9 @@
-use crate::sensor::start_rtos;
 use embassy_executor::Spawner;
 use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::{peripherals::Peripherals, ram, rng::Rng};
+use esp_hal::{ram, rng::Rng};
 use esp_println::println;
 use esp_radio::wifi::{
     AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController, WifiError,
@@ -22,14 +21,12 @@ macro_rules! mk_static {
 
 pub async fn connect(
     spawner: Spawner,
-    peripherals: Peripherals,
+    device: esp_hal::peripherals::WIFI<'static>,
     ssid: &str,
     password: &str,
 ) -> Result<Stack<'static>, WifiError> {
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 64 * 1024);
     esp_alloc::heap_allocator!(size: 36 * 1024);
-
-    start_rtos(peripherals.TIMG0, peripherals.FROM_CPU_INTR0);
 
     let station_config = Config::Station(
         StationConfig::default()
@@ -42,7 +39,7 @@ pub async fn connect(
     println!("Starting wifi");
     let wifi_interface = esp_radio::wifi::Interface::station();
     let mut controller = esp_radio::wifi::WifiController::new(
-        peripherals.WIFI,
+        device,
         ControllerConfig::default().with_initial_config(station_config),
     )?;
     println!("Wifi configured and started!");
