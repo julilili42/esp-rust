@@ -24,3 +24,12 @@ target/
 
 # Ignore .DS_Store file in mac
 **/.DS_Store
+
+
+/target/
+**/__pycache__/
+*.py[cod]
+**/.venv/
+.env
+.env.*
+!.env.example

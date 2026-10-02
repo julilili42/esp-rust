@@ -10,6 +10,7 @@
 use core::fmt::Write as _;
 use defmt::{error, info};
 use embassy_executor::Spawner;
+use embassy_futures::select::{Either, select};
 use embassy_net::Stack;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
@@ -20,7 +21,7 @@ use esp_hal::{Blocking, clock::CpuClock, i2c::master::I2c, main, rng::Rng};
 use esp_println::{self as _};
 use esp_rust::{
     sensor::{AccData, bus_setup, initialize_mpu, start_rtos},
-    websocket::{connect_tcp, ws_handshake, ws_send},
+    websocket::{connect_tcp, ws_handshake, ws_manage_heartbeat, ws_send},
     wifi,
 };
 use heapless::{String, Vec};
@@ -58,17 +59,30 @@ async fn send_batch(stack: Stack<'static>, send_duration: Duration) {
     }
 
     loop {
-        let batch = BATCHES.receive().await;
-        let mut message = String::<4096>::new();
-        write!(&mut message, "{batch:?}").unwrap();
-        let send = ws_send(&mut websocket, &mut stream, &mut write_buf, &message).await;
+        let receive_batch = BATCHES.receive();
+        let receive_ping = ws_manage_heartbeat(&mut websocket, &mut stream, &mut read_buf);
 
-        match send {
-            Ok(_) => info!("Message send."),
-            Err(e) => error!("Send failed: {}", defmt::Debug2Format(&e)),
+        match select(receive_batch, receive_ping).await {
+            Either::First(batch) => {
+                let mut message = String::<4096>::new();
+                write!(&mut message, "{batch:?}").unwrap();
+
+                let send = ws_send(&mut websocket, &mut stream, &mut write_buf, &message).await;
+                match send {
+                    Ok(_) => info!("Message send."),
+                    Err(e) => error!("Send failed: {}", defmt::Debug2Format(&e)),
+                }
+
+                Timer::after(send_duration).await;
+            }
+            Either::Second(ping) => match ping {
+                Ok(()) => {}
+                Err(e) => {
+                    error!("Connection lost in heartbeat: {}", defmt::Debug2Format(&e));
+                    break;
+                }
+            },
         }
-
-        Timer::after(send_duration).await;
     }
 }
 

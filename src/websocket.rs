@@ -11,7 +11,9 @@ use defmt::{error, info};
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
-use embedded_websocket::{Client, WebSocket, WebSocketOptions};
+use embedded_websocket::{
+    Client, Error::HttpHeaderIncomplete, WebSocket, WebSocketOptions, WebSocketReadResult,
+};
 use esp_backtrace as _;
 use esp_hal::rng::Rng;
 use esp_println as _;
@@ -75,6 +77,54 @@ pub async fn ws_handshake(
         }
     }
     Ok(())
+}
+
+pub async fn ws_manage_heartbeat(
+    websocket: &mut WebSocket<Rng, Client>,
+    stream: &mut TcpSocket<'_>,
+    read_buf: &mut [u8],
+) -> Result<(), embedded_websocket::Error> {
+    let mut received = 0;
+
+    let mut ping_payload_buf = [0u8; 64];
+
+    loop {
+        let n = stream
+            .read(&mut read_buf[received..])
+            .await
+            .map_err(|_| embedded_websocket::Error::Unknown)?;
+
+        if n == 0 {
+            return Err(embedded_websocket::Error::Unknown);
+        }
+
+        received += n;
+
+        match websocket.read(&read_buf[..received], &mut ping_payload_buf) {
+            Ok(parser) => {
+                let bytes_written = parser.len_to;
+                match parser.message_type {
+                    embedded_websocket::WebSocketReceiveMessageType::Ping => {
+                        let mut out_buf = [0u8; 128];
+                        if let Ok(len) = websocket.write(
+                            embedded_websocket::WebSocketSendMessageType::Pong,
+                            true,
+                            &ping_payload_buf[..bytes_written],
+                            &mut out_buf,
+                        ) {
+                            let _ = stream.write_all(&out_buf[..len]).await;
+                        };
+                        info!("Ping received, Pong send");
+                        received = 0;
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            Err(HttpHeaderIncomplete) => continue,
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 pub async fn ws_send(
