@@ -1,20 +1,15 @@
-#![no_std]
-#![no_main]
-
+use crate::sensor::start_rtos;
 use embassy_executor::Spawner;
-use embassy_net::{Runner, StackResources};
+use embassy_net::{Runner, Stack, StackResources};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
-use esp_hal::{clock::CpuClock, ram, rng::Rng};
+use esp_hal::{peripherals::Peripherals, ram, rng::Rng};
 use esp_println::println;
 use esp_radio::wifi::{
-    AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController,
+    AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController, WifiError,
     scan::ScanConfig, sta::StationConfig,
 };
-use esp_rust::sensor::start_rtos;
-
-esp_bootloader_esp_idf::esp_app_desc!();
 
 macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
@@ -25,21 +20,12 @@ macro_rules! mk_static {
     }};
 }
 
-const SSID: &str = env!("SSID");
-const PASSWORD: &str = env!("PASSWORD");
-
-/// Whether the chip enters automatic light sleep when all tasks are idle. Requires [`POWER_SAVE`]
-/// to be enabled. The chip sleeps only while the station is in power save. On the ESP32, Wi-Fi
-/// keeps the chip awake.
-const LIGHT_SLEEP: bool = true;
-/// Whether light sleep powers the CPU down. Requires [`LIGHT_SLEEP`] to be enabled.
-const CPU_POWERDOWN: bool = true;
-
-#[esp_hal::main]
-async fn main(spawner: Spawner) {
-    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
-    let peripherals = esp_hal::init(config);
-
+pub async fn connect(
+    spawner: Spawner,
+    peripherals: Peripherals,
+    ssid: &str,
+    password: &str,
+) -> Result<Stack<'static>, WifiError> {
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 64 * 1024);
     esp_alloc::heap_allocator!(size: 36 * 1024);
 
@@ -47,9 +33,9 @@ async fn main(spawner: Spawner) {
 
     let station_config = Config::Station(
         StationConfig::default()
-            .with_ssid(SSID.try_into().unwrap())
+            .with_ssid(ssid.try_into()?)
             .with_authentication(AuthenticationMethodConfig::Wpa2Personal(
-                PASSWORD.try_into().unwrap(),
+                password.try_into()?,
             )),
     );
 
@@ -58,8 +44,7 @@ async fn main(spawner: Spawner) {
     let mut controller = esp_radio::wifi::WifiController::new(
         peripherals.WIFI,
         ControllerConfig::default().with_initial_config(station_config),
-    )
-    .unwrap();
+    )?;
     println!("Wifi configured and started!");
 
     let config = embassy_net::Config::dhcpv4(Default::default());
@@ -77,19 +62,21 @@ async fn main(spawner: Spawner) {
 
     println!("Scan");
     let scan_config = ScanConfig::default().with_max(10);
-    let result = controller.scan_async(&scan_config).await.unwrap();
+    let result = controller.scan_async(&scan_config).await?;
     for ap in result {
         println!("{:?}", ap);
     }
 
-    spawner.spawn(connection(controller).unwrap());
-    spawner.spawn(net_task(runner).unwrap());
+    spawner.spawn(connection(controller).map_err(|_| WifiError::Other)?);
+    spawner.spawn(net_task(runner).map_err(|_| WifiError::Other)?);
 
     stack.wait_config_up().await;
 
     if let Some(config) = stack.config_v4() {
         println!("Got IP: {}", config.address);
     }
+
+    Ok(stack)
 }
 
 #[embassy_executor::task]
