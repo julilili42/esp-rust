@@ -18,7 +18,7 @@ use esp_hal::{
 use esp_println::{self as _};
 use mpu6050::Mpu6050;
 
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct AccData {
     pub x: f32,
     pub y: f32,

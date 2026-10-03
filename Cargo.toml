@@ -40,6 +40,9 @@ esp-radio = { version = "=1.0.0-beta.1", features = ["esp32c6", "wifi", "defmt"]
 embedded-websocket = { version = "0.9.5", default-features = false }
 embedded-io-async = { version = "0.7", default-features = false }
 embassy-futures = "0.1.2"
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde-json-core = "0.6"
+
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html
 [profile.dev]
 # The default debug profile is too slow and too big for resource-constrained devices.

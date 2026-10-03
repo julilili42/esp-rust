@@ -8,6 +8,7 @@
 #![deny(clippy::large_stack_frames)]
 
 use defmt::info;
+use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
     clock::CpuClock,
@@ -51,6 +52,11 @@ fn main() -> ! {
     let colors = [
         RGB8 { r: 0, g: 100, b: 0 },
         RGB8 { r: 100, g: 0, b: 0 },
+        RGB8 {
+            r: 100,
+            g: 0,
+            b: 100,
+        },
         RGB8 { r: 0, g: 0, b: 100 },
     ];
     let n = colors.len();

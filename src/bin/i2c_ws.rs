@@ -7,7 +7,6 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use core::fmt::Write as _;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
@@ -24,21 +23,21 @@ use esp_rust::{
     websocket::{connect_tcp, ws_handshake, ws_manage_heartbeat, ws_send},
     wifi,
 };
-use heapless::{String, Vec};
+use heapless::Vec;
 use mpu6050::Mpu6050;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-type Batch = Vec<AccData, 32>;
+type Batch = Vec<AccData, 8>;
 static BATCHES: Channel<CriticalSectionRawMutex, Batch, 2> = Channel::new();
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
 
 #[embassy_executor::task]
 #[warn(clippy::large_stack_frames)]
-async fn send_batch(stack: Stack<'static>, send_duration: Duration) {
+async fn send_batch(stack: Stack<'static>) {
     let mut rx_buf = [0u8; 1024];
     let mut tx_buf = [0u8; 1024];
     let mut stream = connect_tcp(stack, &mut rx_buf, &mut tx_buf).await;
@@ -64,16 +63,12 @@ async fn send_batch(stack: Stack<'static>, send_duration: Duration) {
 
         match select(receive_batch, receive_ping).await {
             Either::First(batch) => {
-                let mut message = String::<4096>::new();
-                write!(&mut message, "{batch:?}").unwrap();
-
+                let message = serde_json_core::to_string::<_, 4096>(batch.as_slice()).unwrap();
                 let send = ws_send(&mut websocket, &mut stream, &mut write_buf, &message).await;
                 match send {
                     Ok(_) => info!("Message send."),
                     Err(e) => error!("Send failed: {}", defmt::Debug2Format(&e)),
                 }
-
-                Timer::after(send_duration).await;
             }
             Either::Second(ping) => match ping {
                 Ok(()) => {}
@@ -90,7 +85,7 @@ async fn send_batch(stack: Stack<'static>, send_duration: Duration) {
 #[warn(clippy::large_stack_frames)]
 async fn accumulate_batch(
     mut mpu: Mpu6050<Reverse<I2c<'static, Blocking>>>,
-    mut buffer: Vec<AccData, 32>,
+    mut buffer: Vec<AccData, 8>,
     refresh_duration: Duration,
 ) {
     loop {
@@ -132,7 +127,7 @@ async fn main(spawner: Spawner) {
         Err(e) => {
             error!("Failed to set-up i2c bus: {}", defmt::Display2Format(&e));
             loop {
-                Timer::after(Duration::from_millis(1_000)).await;
+                Timer::after(Duration::from_secs(1)).await;
             }
         }
     };
@@ -145,7 +140,7 @@ async fn main(spawner: Spawner) {
         Err(e) => {
             error!("Failed to initialize mpu: {}", defmt::Debug2Format(&e));
             loop {
-                Timer::after(Duration::from_millis(1_000)).await;
+                Timer::after(Duration::from_secs(1)).await;
             }
         }
     };
@@ -160,12 +155,11 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let buffer: Vec<AccData, 32> = Vec::new();
-    let refresh_duration = Duration::from_millis(50);
-    let send_duration = Duration::from_millis(50);
+    let buffer: Vec<AccData, 8> = Vec::new();
+    let refresh_duration = Duration::from_millis(10);
 
     spawner.spawn(accumulate_batch(mpu, buffer, refresh_duration).unwrap());
-    spawner.spawn(send_batch(stack, send_duration).unwrap());
+    spawner.spawn(send_batch(stack).unwrap());
 }
 
 // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.2.2/examples

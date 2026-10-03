@@ -11,9 +11,7 @@ use defmt::{error, info};
 use embassy_net::{Stack, tcp::TcpSocket};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
-use embedded_websocket::{
-    Client, Error::HttpHeaderIncomplete, WebSocket, WebSocketOptions, WebSocketReadResult,
-};
+use embedded_websocket::{Client, Error::HttpHeaderIncomplete, WebSocket, WebSocketOptions};
 use esp_backtrace as _;
 use esp_hal::rng::Rng;
 use esp_println as _;
