@@ -7,55 +7,54 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use defmt::{error, info};
+use core::net::Ipv4Addr;
+
+use defmt::{error, info, warn};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_net::Stack;
+use embassy_net::{IpAddress, IpEndpoint, Stack};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 use embedded_hal_compat::Reverse;
-use embedded_websocket::WebSocketClient;
 use esp_backtrace as _;
-use esp_hal::{Blocking, clock::CpuClock, i2c::master::I2c, main, rng::Rng};
+use esp_hal::{Blocking, clock::CpuClock, i2c::master::I2c, main};
 use esp_println::{self as _};
 use esp_rust::{
     sensor::{AccData, bus_setup, initialize_mpu, start_rtos},
-    websocket::{connect_tcp, ws_handshake, ws_manage_heartbeat, ws_send},
+    websocket::{ws_connect, ws_manage_heartbeat, ws_send},
     wifi,
 };
-use heapless::Vec;
+use heapless::{String, Vec};
 use mpu6050::Mpu6050;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-type Batch = Vec<AccData, 8>;
+const BATCH_CAPACITY: usize = 8;
+type Batch = Vec<AccData, BATCH_CAPACITY>;
+
 static BATCHES: Channel<CriticalSectionRawMutex, Batch, 2> = Channel::new();
+const JSON_CAPACITY: usize = 2 + BATCH_CAPACITY * (16 + 3 * 24 + 1);
+
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
 
+const WS_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 0, 221);
+const WS_PORT: u16 = 8000;
+const WS_PATH: &str = "/ws";
+
 #[embassy_executor::task]
 #[warn(clippy::large_stack_frames)]
-async fn send_batch(stack: Stack<'static>) {
+async fn send_batch(endpoint: IpEndpoint, path: String<20>, stack: Stack<'static>) {
     let mut rx_buf = [0u8; 1024];
     let mut tx_buf = [0u8; 1024];
-    let mut stream = connect_tcp(stack, &mut rx_buf, &mut tx_buf).await;
 
-    let mut write_buf = [0; 4110];
-    let mut read_buf = [0; 4000];
-    let mut websocket = WebSocketClient::new_client(Rng::new());
+    let mut read_buf = [0; 1024];
+    let mut write_buf = [0; JSON_CAPACITY + 14];
 
-    let handshake = ws_handshake(&mut websocket, &mut stream, &mut write_buf, &mut read_buf).await;
-    match handshake {
-        Ok(_) => info!("Succesful WS handshake."),
-        Err(e) => {
-            error!("Error during handshake: {}", defmt::Debug2Format(&e));
-            loop {
-                Timer::after(Duration::from_secs(1)).await;
-            }
-        }
-    }
+    let (mut websocket, mut stream) =
+        ws_connect(endpoint, path, stack, &mut rx_buf, &mut tx_buf).await;
 
     loop {
         let receive_batch = BATCHES.receive();
@@ -158,8 +157,11 @@ async fn main(spawner: Spawner) {
     let buffer: Vec<AccData, 8> = Vec::new();
     let refresh_duration = Duration::from_millis(10);
 
-    spawner.spawn(accumulate_batch(mpu, buffer, refresh_duration).unwrap());
-    spawner.spawn(send_batch(stack).unwrap());
-}
+    let mut ws_path: String<20> = String::new();
+    ws_path.push_str(WS_PATH).unwrap();
 
-// for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.2.2/examples
+    let endpoint = IpEndpoint::new(IpAddress::Ipv4(WS_IP), WS_PORT);
+
+    spawner.spawn(accumulate_batch(mpu, buffer, refresh_duration).unwrap());
+    spawner.spawn(send_batch(endpoint, ws_path, stack).unwrap());
+}

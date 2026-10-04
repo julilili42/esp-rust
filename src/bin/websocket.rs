@@ -7,8 +7,11 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+use core::net::Ipv4Addr;
+
 use defmt::{error, info};
 use embassy_executor::Spawner;
+use embassy_net::{IpAddress, IpEndpoint};
 use embassy_time::{Duration, Timer};
 use embedded_websocket::WebSocketClient;
 use esp_backtrace as _;
@@ -45,15 +48,27 @@ async fn main(spawner: Spawner) -> ! {
         }
     };
 
+    let ip = Ipv4Addr::new(192, 168, 0, 221);
+    let port = 8000;
+    let endpoint = IpEndpoint::new(IpAddress::Ipv4(ip), port);
+
     let mut rx_buf = [0u8; 1024];
     let mut tx_buf = [0u8; 1024];
-    let mut stream = connect_tcp(stack, &mut rx_buf, &mut tx_buf).await;
+    let mut stream = connect_tcp(endpoint, stack, &mut rx_buf, &mut tx_buf).await;
 
     let mut write_buf = [0; 4000];
     let mut read_buf = [0; 4000];
     let mut websocket = WebSocketClient::new_client(Rng::new());
 
-    let handshake = ws_handshake(&mut websocket, &mut stream, &mut write_buf, &mut read_buf).await;
+    let handshake = ws_handshake(
+        endpoint,
+        "/ws",
+        &mut websocket,
+        &mut stream,
+        &mut write_buf,
+        &mut read_buf,
+    )
+    .await;
     match handshake {
         Ok(_) => info!("Succesful WS handshake."),
         Err(e) => {

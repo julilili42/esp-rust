@@ -5,33 +5,79 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use core::net::Ipv4Addr;
-
-use defmt::{error, info};
-use embassy_net::{Stack, tcp::TcpSocket};
+use defmt::{error, info, warn};
+use embassy_net::{IpEndpoint, Stack, tcp::TcpSocket};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
-use embedded_websocket::{Client, Error::HttpHeaderIncomplete, WebSocket, WebSocketOptions};
+use embedded_websocket::{
+    Client, Error::HttpHeaderIncomplete, WebSocket, WebSocketClient, WebSocketOptions,
+};
 use esp_backtrace as _;
 use esp_hal::rng::Rng;
 use esp_println as _;
+use heapless::{String, format};
+
+pub async fn ws_connect<'a>(
+    endpoint: IpEndpoint,
+    path: String<20>,
+    stack: Stack<'a>,
+    rx_buf: &'a mut [u8],
+    tx_buf: &'a mut [u8],
+) -> (WebSocket<Rng, Client>, TcpSocket<'a>) {
+    let mut stream = connect_tcp(endpoint, stack, rx_buf, tx_buf).await;
+
+    let mut write_buf = [0; 4110];
+    let mut read_buf = [0; 4000];
+    let mut websocket = WebSocketClient::new_client(Rng::new());
+
+    let handshake = ws_handshake(
+        endpoint,
+        path.as_str(),
+        &mut websocket,
+        &mut stream,
+        &mut write_buf,
+        &mut read_buf,
+    )
+    .await;
+
+    match handshake {
+        Ok(_) => {
+            info!("Succesful WS handshake.");
+            (websocket, stream)
+        }
+        Err(e) => {
+            error!("Error during handshake: {}", defmt::Debug2Format(&e));
+            loop {
+                Timer::after(Duration::from_secs(1)).await;
+            }
+        }
+    }
+}
 
 pub async fn connect_tcp<'a>(
+    endpoint: IpEndpoint,
     stack: Stack<'a>,
     rx_buf: &'a mut [u8],
     tx_buf: &'a mut [u8],
 ) -> TcpSocket<'a> {
-    let address = Ipv4Addr::new(192, 168, 0, 221);
-    info!("Connecting to: {}", address);
+    info!("Connecting to: {}", &endpoint.addr);
     let mut stream = TcpSocket::new(stack, rx_buf, tx_buf);
-    match stream.connect((address, 8000)).await {
-        Ok(_) => info!("TCP Connected."),
-        Err(e) => {
-            error!(
-                "Failed to establish TCP connection: {}",
-                defmt::Debug2Format(&e)
-            );
-            Timer::after(Duration::from_secs(1)).await;
+    let mut connected = false;
+
+    while !connected {
+        match stream.connect(endpoint).await {
+            Ok(_) => {
+                info!("TCP Connected.");
+                connected = true
+            }
+            Err(e) => {
+                error!(
+                    "Failed to establish TCP connection: {}",
+                    defmt::Debug2Format(&e)
+                );
+                warn!("Retry to establish TCP connection in: 5 seconds");
+                Timer::after(Duration::from_secs(5)).await;
+            }
         }
     }
     stream
@@ -39,15 +85,20 @@ pub async fn connect_tcp<'a>(
 
 #[warn(clippy::large_stack_frames)]
 pub async fn ws_handshake(
+    endpoint: IpEndpoint,
+    path: &str,
     websocket: &mut WebSocket<Rng, Client>,
     stream: &mut TcpSocket<'_>,
     write_buf: &mut [u8],
     read_buf: &mut [u8],
 ) -> Result<(), embedded_websocket::Error> {
+    let host: String<20> = format!("{}:{}", endpoint.addr, endpoint.port).unwrap();
+    let origin: String<30> = format!("http://{}:{}", endpoint.addr, endpoint.port).unwrap();
+
     let websocket_options = WebSocketOptions {
-        path: "/ws",
-        host: "192.168.0.221:8000",
-        origin: "http://192.168.0.221:8000",
+        path,
+        host: &host,
+        origin: &origin,
         sub_protocols: None,
         additional_headers: None,
     };
