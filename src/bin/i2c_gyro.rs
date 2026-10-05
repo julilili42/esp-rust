@@ -9,7 +9,7 @@
 
 use defmt::{error, info};
 use esp_backtrace as _;
-use esp_hal::{delay::Delay, main, time::Duration};
+use esp_hal::{clock::CpuClock, delay::Delay, main, time::Duration};
 use esp_println::{self as _, println};
 use esp_rust::sensor::{AccData, bus_setup, initialize_mpu};
 use heapless::Vec;
@@ -25,8 +25,9 @@ esp_bootloader_esp_idf::esp_app_desc!();
 #[main]
 fn main() -> ! {
     esp_alloc::heap_allocator!(size: 32 * 1024);
-
-    let i2c_bus = match bus_setup() {
+    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+    let peripherals = esp_hal::init(config);
+    let i2c_bus = match bus_setup(peripherals.I2C0, peripherals.GPIO2, peripherals.GPIO3) {
         Ok(bus) => bus,
         Err(e) => {
             error!("Failed to set-up i2c bus: {}", defmt::Display2Format(&e));

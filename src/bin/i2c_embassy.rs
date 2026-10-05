@@ -13,7 +13,7 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 use embassy_time::{Duration, Timer};
 use embedded_hal_compat::Reverse;
 use esp_backtrace as _;
-use esp_hal::{Blocking, i2c::master::I2c, main};
+use esp_hal::{Blocking, clock::CpuClock, i2c::master::I2c, main};
 use esp_println::{self as _};
 use esp_rust::sensor::{AccData, bus_setup, initialize_mpu};
 use heapless::Vec;
@@ -70,8 +70,9 @@ async fn accumulate_batch(
 #[main]
 async fn main(spawner: Spawner) {
     esp_alloc::heap_allocator!(size: 32 * 1024);
-
-    let i2c_bus = match bus_setup() {
+    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+    let peripherals = esp_hal::init(config);
+    let i2c_bus = match bus_setup(peripherals.I2C0, peripherals.GPIO2, peripherals.GPIO3) {
         Ok(bus) => bus,
         Err(e) => {
             error!("Failed to set-up i2c bus: {}", defmt::Display2Format(&e));
