@@ -12,7 +12,7 @@ use core::net::Ipv4Addr;
 use defmt::{error, info, warn};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_net::{IpAddress, IpEndpoint, Stack};
+use embassy_net::{IpAddress, IpEndpoint, Stack, tcp::TcpSocket};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 use embedded_hal_compat::Reverse;
@@ -27,11 +27,9 @@ use esp_rust::{
 use heapless::{String, Vec};
 use mpu6050::Mpu6050;
 
-// This creates a default app-descriptor required by the esp-idf bootloader.
-// For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-const BATCH_CAPACITY: usize = 8;
+const BATCH_CAPACITY: usize = 4;
 type Batch = Vec<AccData, BATCH_CAPACITY>;
 
 static BATCHES: Channel<CriticalSectionRawMutex, Batch, 2> = Channel::new();
@@ -53,29 +51,51 @@ async fn send_batch(endpoint: IpEndpoint, path: String<20>, stack: Stack<'static
     let mut read_buf = [0; 1024];
     let mut write_buf = [0; JSON_CAPACITY + 14];
 
-    let (mut websocket, mut stream) =
-        ws_connect(endpoint, path, stack, &mut rx_buf, &mut tx_buf).await;
+    let mut tcp_socket = TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
 
+    // connection loop
     loop {
-        let receive_batch = BATCHES.receive();
-        let receive_ping = ws_manage_heartbeat(&mut websocket, &mut stream, &mut read_buf);
+        // data loop
+        if let Ok(mut ws_client) = ws_connect(&mut tcp_socket, endpoint, path.as_str()).await {
+            let mut received = 0;
 
-        match select(receive_batch, receive_ping).await {
-            Either::First(batch) => {
-                let message = serde_json_core::to_string::<_, 4096>(batch.as_slice()).unwrap();
-                let send = ws_send(&mut websocket, &mut stream, &mut write_buf, &message).await;
-                match send {
-                    Ok(_) => info!("Message send."),
-                    Err(e) => error!("Send failed: {}", defmt::Debug2Format(&e)),
+            loop {
+                let receive_batch = BATCHES.receive();
+                let receive_ping = ws_manage_heartbeat(
+                    &mut ws_client,
+                    &mut tcp_socket,
+                    &mut read_buf,
+                    &mut received,
+                );
+
+                match select(receive_batch, receive_ping).await {
+                    Either::First(batch) => {
+                        let message =
+                            serde_json_core::to_string::<_, JSON_CAPACITY>(batch.as_slice())
+                                .unwrap();
+
+                        match ws_send(&mut ws_client, &mut tcp_socket, &mut write_buf, &message)
+                            .await
+                        {
+                            Ok(_) => info!("Message send."),
+                            Err(e) => {
+                                error!("Send failed: {}", defmt::Debug2Format(&e));
+                                break;
+                            }
+                        }
+                    }
+                    Either::Second(ping) => match ping {
+                        Ok(()) => {}
+                        Err(e) => {
+                            error!("Connection lost in heartbeat: {}", defmt::Debug2Format(&e));
+                            break;
+                        }
+                    },
                 }
             }
-            Either::Second(ping) => match ping {
-                Ok(()) => {}
-                Err(e) => {
-                    error!("Connection lost in heartbeat: {}", defmt::Debug2Format(&e));
-                    break;
-                }
-            },
+        } else {
+            warn!("Reconnecting...");
+            Timer::after_secs(5).await;
         }
     }
 }
@@ -84,7 +104,7 @@ async fn send_batch(endpoint: IpEndpoint, path: String<20>, stack: Stack<'static
 #[warn(clippy::large_stack_frames)]
 async fn accumulate_batch(
     mut mpu: Mpu6050<Reverse<I2c<'static, Blocking>>>,
-    mut buffer: Vec<AccData, 8>,
+    mut buffer: Vec<AccData, BATCH_CAPACITY>,
     refresh_duration: Duration,
 ) {
     loop {
@@ -154,7 +174,7 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let buffer: Vec<AccData, 8> = Vec::new();
+    let buffer: Vec<AccData, BATCH_CAPACITY> = Vec::new();
     let refresh_duration = Duration::from_millis(10);
 
     let mut ws_path: String<20> = String::new();
