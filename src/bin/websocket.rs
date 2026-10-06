@@ -17,6 +17,7 @@ use esp_backtrace as _;
 use esp_hal::{clock::CpuClock, main};
 use esp_println as _;
 use esp_rust::{
+    sensor::start_rtos,
     websocket::{ws_connect, ws_send},
     wifi,
 };
@@ -26,6 +27,11 @@ use esp_rust::{
 esp_bootloader_esp_idf::esp_app_desc!();
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
+const WS_IP: &str = match option_env!("WS_IP") {
+    Some(ip) => ip,
+    None if wifi::ACCESS_POINT => "192.168.4.2",
+    None => "192.168.0.221",
+};
 const WS_PATH: &str = "/ws";
 
 #[allow(
@@ -36,6 +42,7 @@ const WS_PATH: &str = "/ws";
 async fn main(spawner: Spawner) -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
+    start_rtos(peripherals.TIMG0, peripherals.FROM_CPU_INTR0);
 
     let stack = match wifi::connect(spawner, peripherals.WIFI, SSID, PASSWORD).await {
         Ok(stack) => stack,
@@ -47,7 +54,9 @@ async fn main(spawner: Spawner) -> ! {
         }
     };
 
-    let ip = Ipv4Addr::new(192, 168, 0, 221);
+    let ip = WS_IP
+        .parse::<Ipv4Addr>()
+        .expect("WS_IP must be an IPv4 address");
     let port = 8000;
     let endpoint = IpEndpoint::new(IpAddress::Ipv4(ip), port);
 

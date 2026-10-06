@@ -39,10 +39,31 @@ cd server
 uv run server
 ```
 
-Set `WS_IP` in `src/bin/i2c_ws.rs` to your computer's LAN IP (`:8000/ws`), then run from the project root:
+Choose the Wi-Fi mode at build/flash time (`station` is the default). Both modes
+connect to the WebSocket server on the laptop at port 8000, path `/ws`.
+
+Join an existing network, using your laptop's LAN IPv4 as `WS_IP`:
 
 ```sh
-SSID="your-network" PASSWORD="your-password" cargo run --bin i2c_ws
+WIFI_MODE=station SSID="your-network" PASSWORD="your-password" WS_IP=192.168.0.221 cargo run --bin i2c_ws
 ```
+
+For a direct connection without a router or phone, let the ESP create the network:
+
+```sh
+WIFI_MODE=ap SSID="esp-washer" PASSWORD="test12345" cargo run --bin i2c_ws
+```
+
+Connect the Mac to `esp-washer`. In its Wi-Fi settings, under **Details → TCP/IP**,
+set **Configure IPv4 → Manually**, IP `192.168.4.2`, subnet mask `255.255.255.0`;
+leave router and DNS empty. The ESP uses `192.168.4.1`; `WS_IP` defaults to
+`192.168.4.2` in AP mode. No DHCP server is included. `SSID` and `PASSWORD` name
+and protect the ESP network in this mode; use a password of at least 8 characters.
+Keep the Python server running on the Mac. Return IPv4 configuration to DHCP when
+rejoining your normal network.
+
+The same variables work with `--bin websocket`. Without `WS_IP`, station mode
+keeps the previous default `192.168.0.221`. Check both firmware builds with
+`sh scripts/check-wifi.sh` (no flashing).
 
 Personal notes are in [notes](notes).

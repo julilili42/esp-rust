@@ -1,5 +1,5 @@
 use embassy_executor::Spawner;
-use embassy_net::{Runner, Stack, StackResources};
+use embassy_net::{Ipv4Address, Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
@@ -7,7 +7,16 @@ use esp_hal::{ram, rng::Rng};
 use esp_println::println;
 use esp_radio::wifi::{
     AuthenticationMethodConfig, Config, ControllerConfig, Interface, WifiController, WifiError,
-    scan::ScanConfig, sta::StationConfig,
+    ap::AccessPointConfig, scan::ScanConfig, sta::StationConfig,
+};
+
+pub const ACCESS_POINT: bool = match option_env!("WIFI_MODE") {
+    Some(mode) => match mode.as_bytes() {
+        b"ap" => true,
+        b"station" => false,
+        _ => panic!("WIFI_MODE must be 'ap' or 'station'"),
+    },
+    None => false,
 };
 
 macro_rules! mk_static {
@@ -28,23 +37,39 @@ pub async fn connect(
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 64 * 1024);
     esp_alloc::heap_allocator!(size: 36 * 1024);
 
-    let station_config = Config::Station(
-        StationConfig::default()
-            .with_ssid(ssid.try_into()?)
-            .with_authentication(AuthenticationMethodConfig::Wpa2Personal(
-                password.try_into()?,
-            )),
-    );
+    let authentication = AuthenticationMethodConfig::Wpa2Personal(password.try_into()?);
+    let (wifi_config, wifi_interface, config) = if ACCESS_POINT {
+        (
+            Config::AccessPoint(
+                AccessPointConfig::default()
+                    .with_ssid(ssid.try_into()?)
+                    .with_authentication(authentication),
+            ),
+            Interface::access_point(),
+            embassy_net::Config::ipv4_static(StaticConfigV4 {
+                address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 4, 1), 24),
+                gateway: None,
+                dns_servers: Default::default(),
+            }),
+        )
+    } else {
+        (
+            Config::Station(
+                StationConfig::default()
+                    .with_ssid(ssid.try_into()?)
+                    .with_authentication(authentication),
+            ),
+            Interface::station(),
+            embassy_net::Config::dhcpv4(Default::default()),
+        )
+    };
 
     println!("Starting wifi");
-    let wifi_interface = esp_radio::wifi::Interface::station();
     let mut controller = esp_radio::wifi::WifiController::new(
         device,
-        ControllerConfig::default().with_initial_config(station_config),
+        ControllerConfig::default().with_initial_config(wifi_config),
     )?;
-    println!("Wifi configured and started!");
-
-    let config = embassy_net::Config::dhcpv4(Default::default());
+    println!("Wifi configured");
 
     let rng = Rng::new();
     let seed = (rng.random() as u64) << 32 | rng.random() as u64;
@@ -57,11 +82,15 @@ pub async fn connect(
         seed,
     );
 
-    println!("Scan");
-    let scan_config = ScanConfig::default().with_max(10);
-    let result = controller.scan_async(&scan_config).await?;
-    for ap in result {
-        println!("{:?}", ap);
+    if ACCESS_POINT {
+        println!("Access point '{}' ready", ssid);
+    } else {
+        println!("Scan");
+        let scan_config = ScanConfig::default().with_max(10);
+        let result = controller.scan_async(&scan_config).await?;
+        for ap in result {
+            println!("{:?}", ap);
+        }
     }
 
     spawner.spawn(connection(controller).map_err(|_| WifiError::Other)?);
@@ -78,6 +107,15 @@ pub async fn connect(
 
 #[embassy_executor::task]
 async fn connection(mut controller: WifiController<'static>) {
+    if ACCESS_POINT {
+        loop {
+            let event = controller
+                .wait_for_access_point_connected_event_async()
+                .await;
+            println!("Access point event: {:?}", event);
+        }
+    }
+
     println!("start connection task");
 
     loop {

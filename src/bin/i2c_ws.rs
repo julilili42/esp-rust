@@ -42,7 +42,11 @@ const JSON_CAPACITY: usize = 2 + BATCH_CAPACITY * (ACC_JSON_CAPACITY + 1);
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
 
-const WS_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 0, 221);
+const WS_IP: &str = match option_env!("WS_IP") {
+    Some(ip) => ip,
+    None if wifi::ACCESS_POINT => "192.168.4.2",
+    None => "192.168.0.221",
+};
 const WS_PORT: u16 = 8000;
 const WS_PATH: &str = "/ws";
 
@@ -202,7 +206,10 @@ async fn main(spawner: Spawner) {
     let mut ws_path: String<20> = String::new();
     ws_path.push_str(WS_PATH).unwrap();
 
-    let endpoint = IpEndpoint::new(IpAddress::Ipv4(WS_IP), WS_PORT);
+    let ip = WS_IP
+        .parse::<Ipv4Addr>()
+        .expect("WS_IP must be an IPv4 address");
+    let endpoint = IpEndpoint::new(IpAddress::Ipv4(ip), WS_PORT);
 
     spawner.spawn(accumulate_batch(mpu, buffer, refresh_duration).unwrap());
     spawner.spawn(send_batch(endpoint, ws_path, stack).unwrap());
