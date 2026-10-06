@@ -39,6 +39,9 @@ cd server
 uv run server
 ```
 
+Received batches are appended to `measurements.jsonl` in the working directory
+(`server/` with the command above), one WebSocket message per line.
+
 Choose the Wi-Fi mode at build/flash time (`station` is the default). Both modes
 connect to the WebSocket server on the laptop at port 8000, path `/ws`.
 

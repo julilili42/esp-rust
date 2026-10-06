@@ -12,9 +12,11 @@ data_q = queue.Queue()
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
-        while True:
-            data = await websocket.receive_text()
-            data_q.put(data)
+        with open("measurements.jsonl", "a", encoding="utf-8", buffering=1) as recording:
+            while True:
+                data = await websocket.receive_text()
+                recording.write(data + "\n")
+                data_q.put(data)
     except WebSocketDisconnect as exc:
         print(f"Client disconnected: {exc.code}", flush=True)
 
