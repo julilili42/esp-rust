@@ -18,13 +18,6 @@ use esp_hal::{
 use esp_println::{self as _};
 use mpu6050::Mpu6050;
 
-#[derive(Debug, serde::Serialize)]
-pub struct AccData {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
 struct MpuDelay(Delay);
 impl embedded_hal_02::blocking::delay::DelayMs<u8> for MpuDelay {
     fn delay_ms(&mut self, ms: u8) {

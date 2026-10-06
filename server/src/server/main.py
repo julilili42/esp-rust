@@ -1,24 +1,23 @@
 import json
 import queue
 import threading
-from dataclasses import dataclass
 
 from server.api import data_q, start_server
 from server.plot import plot
-
-
-@dataclass
-class AccData:
-    x: float
-    y: float
-    z: float
+from server.types import AccData, Ema, RawData, Rms
 
 
 def parse_data(s: str) -> list[AccData]:
     batch = []
     data = json.loads(s)
     for entry in data:
-        batch.append(AccData(**entry))
+        batch.append(
+            AccData(
+                raw=RawData(**entry["raw"]),
+                ema=Ema(**entry["ema"]),
+                rms=Rms(**entry["rms"]),
+            )
+        )
 
     return batch
 

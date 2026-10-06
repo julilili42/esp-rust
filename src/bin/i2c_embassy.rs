@@ -15,7 +15,8 @@ use embedded_hal_compat::Reverse;
 use esp_backtrace as _;
 use esp_hal::{Blocking, clock::CpuClock, i2c::master::I2c, main};
 use esp_println::{self as _};
-use esp_rust::sensor::{AccData, bus_setup, initialize_mpu};
+use esp_rust::sensor::{bus_setup, initialize_mpu};
+use esp_rust::vibration::{AccData, RawData};
 use heapless::Vec;
 use mpu6050::Mpu6050;
 
@@ -45,9 +46,13 @@ async fn accumulate_batch(
             Ok(acc) => {
                 buffer
                     .push(AccData {
-                        x: acc.x,
-                        y: acc.y,
-                        z: acc.z,
+                        raw: Some(RawData {
+                            x: acc.x,
+                            y: acc.y,
+                            z: acc.z,
+                        }),
+                        ema: None,
+                        rms: None,
                     })
                     .unwrap();
 

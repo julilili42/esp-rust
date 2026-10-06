@@ -20,7 +20,8 @@ use esp_backtrace as _;
 use esp_hal::{Blocking, clock::CpuClock, i2c::master::I2c, main};
 use esp_println::{self as _};
 use esp_rust::{
-    sensor::{AccData, bus_setup, initialize_mpu, start_rtos},
+    sensor::{bus_setup, initialize_mpu, start_rtos},
+    vibration::{AccData, Ema, EmaFilter, RawData, Rms, calc_rms},
     websocket::{ws_connect, ws_manage_heartbeat, ws_send},
     wifi,
 };
@@ -33,7 +34,10 @@ const BATCH_CAPACITY: usize = 4;
 type Batch = Vec<AccData, BATCH_CAPACITY>;
 
 static BATCHES: Channel<CriticalSectionRawMutex, Batch, 2> = Channel::new();
-const JSON_CAPACITY: usize = 2 + BATCH_CAPACITY * (16 + 3 * 24 + 1);
+
+const XYZ_JSON_CAPACITY: usize = 16 + 3 * 24;
+const ACC_JSON_CAPACITY: usize = 15 + 2 * XYZ_JSON_CAPACITY + 16 + 1 * 24;
+const JSON_CAPACITY: usize = 2 + BATCH_CAPACITY * (ACC_JSON_CAPACITY + 1);
 
 const SSID: &str = env!("SSID");
 const PASSWORD: &str = env!("PASSWORD");
@@ -107,14 +111,32 @@ async fn accumulate_batch(
     mut buffer: Vec<AccData, BATCH_CAPACITY>,
     refresh_duration: Duration,
 ) {
+    let mut ema_filter = EmaFilter::new(0.05);
+
     loop {
         match mpu.get_acc() {
             Ok(acc) => {
+                let ema = &ema_filter.update(Ema {
+                    x: acc.x,
+                    y: acc.y,
+                    z: acc.z,
+                });
+
+                let rms = calc_rms(acc.x, acc.y, acc.z);
+
                 buffer
                     .push(AccData {
-                        x: acc.x,
-                        y: acc.y,
-                        z: acc.z,
+                        raw: Some(RawData {
+                            x: acc.x,
+                            y: acc.y,
+                            z: acc.z,
+                        }),
+                        ema: Some(Ema {
+                            x: ema.x,
+                            y: ema.y,
+                            z: ema.z,
+                        }),
+                        rms: Some(Rms { value: rms }),
                     })
                     .unwrap();
 

@@ -1106,6 +1106,7 @@ dependencies = [
  "esp-radio",
  "esp-rtos",
  "heapless 0.9.3",
+ "libm",
  "mpu6050",
  "serde",
  "serde-json-core",

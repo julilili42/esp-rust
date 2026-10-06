@@ -11,7 +11,8 @@ use defmt::{error, info};
 use esp_backtrace as _;
 use esp_hal::{clock::CpuClock, delay::Delay, main, time::Duration};
 use esp_println::{self as _, println};
-use esp_rust::sensor::{AccData, bus_setup, initialize_mpu};
+use esp_rust::sensor::{bus_setup, initialize_mpu};
+use esp_rust::vibration::{AccData, RawData};
 use heapless::Vec;
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
@@ -63,9 +64,13 @@ fn main() -> ! {
             }
             buffer
                 .push(AccData {
-                    x: acc.x,
-                    y: acc.y,
-                    z: acc.z,
+                    raw: Some(RawData {
+                        x: acc.x,
+                        y: acc.y,
+                        z: acc.z,
+                    }),
+                    ema: None,
+                    rms: None,
                 })
                 .unwrap();
 
