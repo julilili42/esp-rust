@@ -30,7 +30,7 @@ use mpu6050::Mpu6050;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-const BATCH_CAPACITY: usize = 4;
+const BATCH_CAPACITY: usize = 2;
 type Batch = Vec<AccData, BATCH_CAPACITY>;
 
 static BATCHES: Channel<CriticalSectionRawMutex, Batch, 2> = Channel::new();
@@ -145,7 +145,10 @@ async fn accumulate_batch(
                     .unwrap();
 
                 if buffer.is_full() {
-                    BATCHES.send(core::mem::take(&mut buffer)).await;
+                    let message = core::mem::take(&mut buffer);
+                    if let Err(e) = BATCHES.try_send(message) {
+                        warn!("Backpressure detected: {}", defmt::Debug2Format(&e));
+                    }
                 }
             }
             Err(e) => {
