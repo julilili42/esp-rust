@@ -657,6 +657,9 @@ name = "embedded-hal"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "361a90feb7004eca4019fb28352a9465666b24f840f5c3cddf0ff13920590b89"
+dependencies = [
+ "defmt 0.3.100",
+]
 
 [[package]]
 name = "embedded-hal-async"
@@ -664,7 +667,20 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c4c685bbef7fe13c3c6dd4da26841ed3980ef33e841cddfa15ce8a8fb3f1884"
 dependencies = [
+ "defmt 0.3.100",
  "embedded-hal 1.0.0",
+]
+
+[[package]]
+name = "embedded-hal-bus"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "513e0b3a8fb7d3013a8ae17a834283f170deaf7d0eeab0a7c1a36ad4dd356d22"
+dependencies = [
+ "critical-section",
+ "defmt 0.3.100",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
 ]
 
 [[package]]
@@ -714,6 +730,16 @@ checksum = "2564b9f813c544241430e147d8bc454815ef9ac998878d30cc3055449f7fd4c0"
 dependencies = [
  "defmt 1.1.1",
  "embedded-io 0.7.1",
+]
+
+[[package]]
+name = "embedded-lora-rfm95"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cab7d011230b01edca9b8e398839972456f55f85bbbf1eac1bff7aef5348dd5"
+dependencies = [
+ "embedded-hal 1.0.0",
+ "embedded-hal-bus",
 ]
 
 [[package]]
@@ -1094,8 +1120,10 @@ dependencies = [
  "embassy-sync 0.8.0",
  "embassy-time",
  "embedded-hal 0.2.7",
+ "embedded-hal-bus",
  "embedded-hal-compat",
  "embedded-io-async 0.7.0",
+ "embedded-lora-rfm95",
  "embedded-websocket",
  "esp-alloc",
  "esp-backtrace",

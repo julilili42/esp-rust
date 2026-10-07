@@ -14,7 +14,7 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_net::{IpAddress, IpEndpoint, Stack, tcp::TcpSocket};
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal_compat::Reverse;
 use esp_backtrace as _;
 use esp_hal::{Blocking, clock::CpuClock, i2c::master::I2c, main};
@@ -33,7 +33,8 @@ esp_bootloader_esp_idf::esp_app_desc!();
 const BATCH_CAPACITY: usize = 2;
 type Batch = Vec<AccData, BATCH_CAPACITY>;
 
-static BATCHES: Channel<CriticalSectionRawMutex, Batch, 2> = Channel::new();
+static CHANNEL_CAPACITY: usize = 3;
+static BATCHES: Channel<CriticalSectionRawMutex, Batch, CHANNEL_CAPACITY> = Channel::new();
 
 const XYZ_JSON_CAPACITY: usize = 16 + 3 * 24;
 const ACC_JSON_CAPACITY: usize = 15 + 2 * XYZ_JSON_CAPACITY + 16 + 1 * 24;
@@ -116,7 +117,7 @@ async fn accumulate_batch(
     refresh_duration: Duration,
 ) {
     let mut ema_filter = EmaFilter::new(0.05);
-
+    let mut ticker = Ticker::every(refresh_duration);
     loop {
         match mpu.get_acc() {
             Ok(acc) => {
@@ -146,8 +147,8 @@ async fn accumulate_batch(
 
                 if buffer.is_full() {
                     let message = core::mem::take(&mut buffer);
-                    if let Err(e) = BATCHES.try_send(message) {
-                        warn!("Backpressure detected: {}", defmt::Debug2Format(&e));
+                    if let Err(_) = BATCHES.try_send(message) {
+                        warn!("Backpressure detected");
                     }
                 }
             }
@@ -155,7 +156,7 @@ async fn accumulate_batch(
                 error!("Failed to read sensor data: {:?}", defmt::Debug2Format(&e))
             }
         }
-        Timer::after(refresh_duration).await;
+        ticker.next().await;
     }
 }
 
