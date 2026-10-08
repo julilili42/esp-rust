@@ -25,6 +25,8 @@ cargo run --bin i2c_gyro
 | `embassy`          | Run concurrent async tasks with Embassy                                        |
 | `websocket`        | Send text over Wi-Fi/WebSocket with automatic reconnect                        |
 | `i2c_ws`           | Stream MPU6050 acceleration in JSON batches, with ping/pong and reconnect      |
+| `lora_tx`          | Send numbered LoRa pings and check the echoed reply                            |
+| `lora_rx`          | Receive LoRa pings, print RSSI/SNR and echo the packet                          |
 
 To run another example, replace the name after `--bin`.
 
@@ -68,5 +70,25 @@ rejoining your normal network.
 The same variables work with `--bin websocket`. Without `WS_IP`, station mode
 keeps the previous default `192.168.0.221`. Check both firmware builds with
 `sh scripts/check-wifi.sh` (no flashing).
+
+## LoRa range test
+
+Flash `cargo run --bin lora_tx` onto the basement ESP and
+`cargo run --bin lora_rx` onto the upstairs ESP. Both use the existing RFM95W
+wiring: **SCK → GPIO6, MISO → GPIO20, MOSI → GPIO7, CS → GPIO10, RST → GPIO11,
+VCC → 3V3, GND → G**. Connect an appropriate 868 MHz antenna to each module.
+
+The settings prioritize range: **869.525 MHz, SF12, 62.5 kHz bandwidth,
+coding rate 4/8, CRC**. The existing driver uses about **17 dBm** TX power and
+automatically enables low data rate optimization. Narrower bandwidth is more
+sensitive to oscillator drift; [Semtech recommends a TCXO below 62.5 kHz](https://cdn.sparkfun.com/assets/7/7/3/2/2/SX1276_Datasheet.pdf).
+
+TX sends a four-byte packet number and accepts only the identical reply. Both
+boards print packet RSSI and SNR. Each packet takes about 1.9 seconds on air;
+TX pauses for 30 seconds between attempts and RX pauses for 20 seconds after
+replying, keeping each transmitter below the 10% duty-cycle limit for this band
+in Germany ([Bundesnetzagentur, Vfg 91/2025](https://www.bundesnetzagentur.de/DE/Fachthemen/Telekommunikation/Frequenzen/Allgemeinzuteilungen/_DL/vfg91_2025.pdf?__blob=publicationFile&v=3)).
+A `PONG` on TX confirms both directions. Reception through reinforced
+concrete depends on the building and antenna placement; first test side by side.
 
 Personal notes are in [notes](notes).
