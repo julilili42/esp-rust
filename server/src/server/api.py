@@ -1,10 +1,12 @@
 import queue
+from contextlib import nullcontext
 
 import uvicorn
 from fastapi import FastAPI, WebSocket
 from fastapi.websockets import WebSocketDisconnect
 
 app = FastAPI()
+app.state.recording_path = None
 data_q = queue.Queue()
 
 
@@ -12,10 +14,15 @@ data_q = queue.Queue()
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     try:
-        with open("measurements.jsonl", "a", encoding="utf-8", buffering=1) as recording:
+        path = app.state.recording_path
+        with (
+            path.open("a", encoding="utf-8", buffering=1)
+            if path is not None else nullcontext()
+        ) as recording:
             while True:
                 data = await websocket.receive_text()
-                recording.write(data + "\n")
+                if recording is not None:
+                    recording.write(data + "\n")
                 data_q.put(data)
     except WebSocketDisconnect as exc:
         print(f"Client disconnected: {exc.code}", flush=True)

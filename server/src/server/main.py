@@ -1,45 +1,23 @@
-import json
-import queue
-import threading
+import argparse
 
-from server.api import data_q, start_server
-from server.plot import plot
-from server.types import AccData, Ema, RawData, Rms
-
-
-def parse_data(s: str) -> list[AccData]:
-    batch = []
-    data = json.loads(s)
-    for entry in data:
-        batch.append(
-            AccData(
-                raw=RawData(**entry["raw"]),
-                ema=Ema(**entry["ema"]),
-                rms=Rms(**entry["rms"]),
-            )
-        )
-
-    return batch
+from server.plot import plot_acceleration, plot_movement
+from server.runtime import run
 
 
 def main():
-    server_thread = threading.Thread(target=start_server, daemon=True)
-    server_thread.start()
-    print("Server started")
-
-    try:
-        batch = []
-        while plot(batch):
-            try:
-                s = data_q.get(timeout=0.05)
-                batch = parse_data(s)
-            except queue.Empty:
-                batch = []
-
-    except KeyboardInterrupt:
-        print("Stopped server.")
-    return 0
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--plot", choices=("standard", "movement"), default="standard",
+        help="Live plot to display (default: standard)",
+    )
+    parser.add_argument(
+        "--save", action="store_true",
+        help="Save timestamped JSONL recordings in server/measurements/",
+    )
+    args = parser.parse_args()
+    plotter = plot_movement if args.plot == "movement" else plot_acceleration
+    return run(plotter, save=args.save)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

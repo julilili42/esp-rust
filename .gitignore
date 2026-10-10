@@ -34,3 +34,4 @@ target/
 .env.*
 !.env.example
 measurements.jsonl
+/server/measurements/
