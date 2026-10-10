@@ -39,8 +39,15 @@ cd server
 uv run server
 ```
 
-Received batches are appended to `measurements.jsonl` in the working directory
-(`server/` with the command above), one WebSocket message per line.
+`--plot movement` shows detection events and a detection counter;
+`--plot standard` is the default. Enable recording with `--save`:
+
+```sh
+uv run server --plot movement --save
+```
+
+Recordings go to `server/measurements/`, one WebSocket message per line, with
+timestamped names such as `measurements_2026-10-10_18-30-00_123456.jsonl`.
 
 Choose the Wi-Fi mode at build/flash time (`station` is the default). Both modes
 connect to the WebSocket server on the laptop at port 8000, path `/ws`.
